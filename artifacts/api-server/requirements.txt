@@ -1,0 +1,4 @@
+fastapi
+uvicorn[standard]
+websockets==10.3
+httpx

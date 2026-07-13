@@ -13,6 +13,7 @@ paths = ["/api"]
 run = "python3 server.py"
 
 [services.production]
+build = ["uv", "sync", "--frozen"]
 
 [services.production.run]
 args = ["python3", "server.py"]

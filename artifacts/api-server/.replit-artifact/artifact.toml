@@ -16,7 +16,7 @@ run = "python3 server.py"
 build = ["uv", "sync", "--frozen"]
 
 [services.production.run]
-args = ["python3", "server.py"]
+args = ["python3", "artifacts/api-server/server.py"]
 
 [services.production.run.env]
 PORT = "8080"

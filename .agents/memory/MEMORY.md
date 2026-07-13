@@ -1,0 +1,2 @@
+- [Deriv trading strategy spec](deriv-trading-strategy.md) — Step Index symbols, indicator periods, BUY/SELL entry rules, risk settings for this bot.
+- [Non-Node artifact services](non-node-artifact-services.md) — how to run a Python (or other non-Node) backend inside an artifact via `artifact.toml`, and the cwd gotcha.

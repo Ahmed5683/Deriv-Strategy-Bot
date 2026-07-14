@@ -61,7 +61,6 @@ MACD_SIGNAL = 36
 DPO_PERIOD = 250
 
 CACHE_TTL           = 60
-TRADE_COOLDOWN_SECS = int(os.getenv("TRADE_COOLDOWN_SECS", "300"))
 
 # Bars needed for every indicator to warm up (StochRSI is the hungriest:
 # RSI_LENGTH + STOCH_LENGTH + STOCH_SMOOTH_K + STOCH_SMOOTH_D + buffer)
@@ -74,7 +73,10 @@ _analysis_cache_time: float = 0
 _chart_cache:         Dict[str, Dict]  = {}
 _chart_cache_time:    Dict[str, float] = {}
 _trade_log:      List[Dict] = []
-_trade_cooldown: Dict[str, float] = {}
+# Per-symbol epoch of the latest candle already traded on — ensures at most
+# one trade per symbol per candle, regardless of how many scans run before
+# that candle closes (replaces the old pure time-based cooldown lookback).
+_traded_candle_epoch: Dict[str, int] = {}
 
 
 # ──────────────────────────────────────────────────
@@ -300,6 +302,7 @@ async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
 
         closes = [float(c["close"]) for c in candles]
         price  = closes[-1]
+        candle_epoch = candles[-1].get("epoch")
 
         stoch_rsi = calc_stoch_rsi(closes)
         macd      = calc_macd(closes)
@@ -320,6 +323,7 @@ async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
             "macd":         macd,
             "dpo":          dpo,
             "signal":       signal,
+            "candle_epoch": candle_epoch,
             "last_updated": datetime.utcnow().isoformat(),
         }
 
@@ -533,15 +537,19 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
       SELL (MULTDOWN): DPO < 0   AND StochRSI %K,%D >= 80  AND MACD line turned
                         bearish (peaked) while still ABOVE the signal line
     """
-    global _trade_log, _trade_cooldown
+    global _trade_log, _traded_candle_epoch
 
     symbol = sym["symbol"]
     signal = sym.get("signal", "NONE")
     if signal not in ("BUY", "SELL"):
         return
 
-    now = time.time()
-    if now - _trade_cooldown.get(symbol, 0) < TRADE_COOLDOWN_SECS:
+    # One trade per symbol per candle: only act the first time a given candle
+    # (identified by its epoch) produces this signal. This is what stops the
+    # bot from re-firing on every scan while the same latest candle is still
+    # the current one — no time-based cooldown lookback needed.
+    candle_epoch = sym.get("candle_epoch")
+    if candle_epoch is None or _traded_candle_epoch.get(symbol) == candle_epoch:
         return
 
     contract_type = "MULTUP" if signal == "BUY" else "MULTDOWN"
@@ -553,7 +561,7 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
         f"StochD={stoch_rsi.get('d')} MACD={macd.get('macd')} Sig={macd.get('signal')}"
     )
 
-    _trade_cooldown[symbol] = now
+    _traded_candle_epoch[symbol] = candle_epoch
     result = await _place_multiplier_trade(symbol, contract_type)
 
     entry = {
@@ -645,13 +653,20 @@ async def get_chart(symbol: str):
 
 @router.get("/trading/status")
 async def trading_status():
+    """`cooldowns` here means "seconds left until the current candle closes"
+    for symbols that have already been traded on their latest candle — once
+    a new candle opens the symbol is free to trade again on a fresh signal."""
     now = time.time()
-    cooldowns = {
-        s: round(TRADE_COOLDOWN_SECS - (now - t))
-        for s, t in _trade_cooldown.items()
-        if now - t < TRADE_COOLDOWN_SECS
-    }
-    return {"trades": _trade_log, "cooldowns": cooldowns}
+    locked: Dict[str, int] = {}
+    cache = _analysis_cache or {}
+    for r in cache.get("symbols", []):
+        s     = r.get("symbol")
+        epoch = r.get("candle_epoch")
+        if epoch is not None and _traded_candle_epoch.get(s) == epoch:
+            remaining = 60 - int(now - epoch)
+            if remaining > 0:
+                locked[s] = remaining
+    return {"trades": _trade_log, "cooldowns": locked}
 
 
 @router.get("/trading/config")
@@ -663,7 +678,7 @@ async def trading_config():
         "stake":                TRADE_STAKE,
         "stop_loss":            TRADE_STOP_LOSS,
         "take_profit":          TRADE_TAKE_PROFIT,
-        "cooldown_secs":        TRADE_COOLDOWN_SECS,
+        "cooldown_secs":        60,
     }
 
 

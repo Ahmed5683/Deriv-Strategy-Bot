@@ -215,10 +215,12 @@ def calc_stoch_rsi(closes: List[float]) -> Dict:
 def calc_macd(closes: List[float]) -> Dict:
     """MACD(21, 55, 36).
 
-    bullish_turn: MACD line troughed (was falling, now rising) while still
-                  BELOW the signal line — early/pre-confirmation buy signal.
-    bearish_turn: MACD line peaked (was rising, now falling) while still
-                  ABOVE the signal line — early/pre-confirmation sell signal.
+    Histogram = MACD line - signal line.
+    bullish_turn: histogram crossed from bearish (below 0, MACD under signal)
+                  on the PREVIOUS bar to bullish (above 0, MACD over signal)
+                  on the CURRENT bar — a genuine MACD/signal crossover, buy.
+    bearish_turn: histogram crossed from bullish (above 0) on the previous
+                  bar to bearish (below 0) on the current bar — sell.
     """
     fast_ema = _ema_series(closes, MACD_FAST)
     slow_ema = _ema_series(closes, MACD_SLOW)
@@ -233,22 +235,26 @@ def calc_macd(closes: List[float]) -> Dict:
     macd_line = [f - s for f, s in zip(fast_aligned, slow_aligned)]
 
     signal_line = _ema_series(macd_line, MACD_SIGNAL)
-    if len(signal_line) < 2 or len(macd_line) < 3:
+    if len(signal_line) < 2 or len(macd_line) < 2:
         return {"macd": None, "signal": None, "bullish_turn": False,
                 "bearish_turn": False, "macd_values": [], "signal_values": []}
 
     # Align macd_line to signal_line's window for the "vs signal" comparison.
     macd_aligned = macd_line[-len(signal_line):]
 
-    macd_curr, macd_prev, macd_prev2 = macd_aligned[-1], macd_aligned[-2], macd_aligned[-3]
-    signal_curr = signal_line[-1]
+    macd_curr, macd_prev = macd_aligned[-1], macd_aligned[-2]
+    signal_curr, signal_prev = signal_line[-1], signal_line[-2]
 
-    bullish_turn = (macd_prev <= macd_prev2) and (macd_curr > macd_prev) and (macd_curr < signal_curr)
-    bearish_turn = (macd_prev >= macd_prev2) and (macd_curr < macd_prev) and (macd_curr > signal_curr)
+    hist_curr = macd_curr - signal_curr
+    hist_prev = macd_prev - signal_prev
+
+    bullish_turn = (hist_prev < 0) and (hist_curr > 0)   # bearish bar -> bullish bar
+    bearish_turn = (hist_prev > 0) and (hist_curr < 0)   # bullish bar -> bearish bar
 
     return {
         "macd":           round(macd_curr, 5),
         "signal":         round(signal_curr, 5),
+        "histogram":      round(hist_curr, 5),
         "bullish_turn":   bullish_turn,
         "bearish_turn":   bearish_turn,
         "macd_values":    [round(v, 5) for v in macd_aligned[-100:]],
@@ -532,10 +538,12 @@ async def _place_multiplier_trade(symbol: str, contract_type: str) -> Dict:
 async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     """Strategy: DPO(250) + Stochastic RSI(150,120,55,9) + MACD(21,55,36)
 
-      BUY  (MULTUP):   DPO > 0   AND StochRSI %K,%D <= 20  AND MACD line turned
-                        bullish (troughed) while still BELOW the signal line
-      SELL (MULTDOWN): DPO < 0   AND StochRSI %K,%D >= 80  AND MACD line turned
-                        bearish (peaked) while still ABOVE the signal line
+      BUY  (MULTUP):   DPO > 0   AND StochRSI %K,%D <= 20  AND MACD crossed
+                        from a bearish bar (prev candle) to a bullish bar
+                        (current candle) — i.e. MACD line crossed above signal
+      SELL (MULTDOWN): DPO < 0   AND StochRSI %K,%D >= 80  AND MACD crossed
+                        from a bullish bar (prev candle) to a bearish bar
+                        (current candle) — i.e. MACD line crossed below signal
     """
     global _trade_log, _traded_candle_epoch
 

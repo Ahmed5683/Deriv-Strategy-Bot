@@ -26,7 +26,7 @@ DERIV_REST    = "https://api.derivws.com"
 
 # ── Auto-trading settings (overridable via env) ──────────────
 TRADE_STAKE        = float(os.getenv("TRADE_STAKE",        "1.0"))
-TRADE_STOP_LOSS    = float(os.getenv("TRADE_STOP_LOSS",    "1.0"))
+TRADE_STOP_LOSS    = float(os.getenv("TRADE_STOP_LOSS",    "0.50"))
 TRADE_TAKE_PROFIT  = float(os.getenv("TRADE_TAKE_PROFIT",  "1.2"))
 TRADE_ON_DEMO_ONLY = os.getenv("TRADE_ON_DEMO_ONLY", "true").lower() == "true"
 AUTO_TRADING_ENABLED = os.getenv("AUTO_TRADING_ENABLED", "true").lower() == "true"

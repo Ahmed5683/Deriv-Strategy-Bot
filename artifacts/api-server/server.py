@@ -60,11 +60,17 @@ MACD_SIGNAL = 36
 # Detrended Price Oscillator
 DPO_PERIOD = 250
 
+# Aroon: extra confirmation layer on top of DPO + StochRSI + MACD
+AROON_PERIOD    = 350
+AROON_STRONG    = 70
+AROON_WEAK      = 20
+
 CACHE_TTL           = 60
 
 # Bars needed for every indicator to warm up (StochRSI is the hungriest:
 # RSI_LENGTH + STOCH_LENGTH + STOCH_SMOOTH_K + STOCH_SMOOTH_D + buffer)
-MIN_BARS_NEEDED  = RSI_LENGTH + STOCH_LENGTH + STOCH_SMOOTH_K + STOCH_SMOOTH_D + 20
+MIN_BARS_NEEDED  = max(RSI_LENGTH + STOCH_LENGTH + STOCH_SMOOTH_K + STOCH_SMOOTH_D + 20,
+                       AROON_PERIOD + 20)
 ANALYSIS_CANDLES = max(900, MIN_BARS_NEEDED + 50)
 CHART_CANDLES    = ANALYSIS_CANDLES + 200
 
@@ -296,6 +302,40 @@ def calc_dpo(closes: List[float], period: int = DPO_PERIOD) -> Dict:
     }
 
 
+def calc_aroon(highs: List[float], lows: List[float], period: int = AROON_PERIOD) -> Dict:
+    """Aroon(350) — extra confirmation layer.
+
+    Aroon Up   = ((period - bars since highest high in window) / period) * 100
+    Aroon Down = ((period - bars since lowest low in window) / period) * 100
+
+    buy_confirmed:  Aroon Up   > 70  AND Aroon Down < 20
+    sell_confirmed: Aroon Down > 70  AND Aroon Up   < 20
+    """
+    window = period + 1
+    if len(highs) < window or len(lows) < window:
+        return {"up": None, "down": None, "buy_confirmed": False, "sell_confirmed": False}
+
+    window_highs = highs[-window:]
+    window_lows  = lows[-window:]
+
+    # index 0 = oldest bar in window, index `period` = current bar
+    idx_high = window_highs.index(max(window_highs))
+    idx_low  = window_lows.index(min(window_lows))
+
+    bars_since_high = period - idx_high
+    bars_since_low  = period - idx_low
+
+    aroon_up   = ((period - bars_since_high) / period) * 100
+    aroon_down = ((period - bars_since_low) / period) * 100
+
+    return {
+        "up":             round(aroon_up, 2),
+        "down":           round(aroon_down, 2),
+        "buy_confirmed":  aroon_up > AROON_STRONG and aroon_down < AROON_WEAK,
+        "sell_confirmed": aroon_down > AROON_STRONG and aroon_up < AROON_WEAK,
+    }
+
+
 # ──────────────────────────────────────────────────
 # Analysis
 # ──────────────────────────────────────────────────
@@ -307,17 +347,22 @@ async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
             return None
 
         closes = [float(c["close"]) for c in candles]
+        highs  = [float(c["high"])  for c in candles]
+        lows   = [float(c["low"])   for c in candles]
         price  = closes[-1]
         candle_epoch = candles[-1].get("epoch")
 
         stoch_rsi = calc_stoch_rsi(closes)
         macd      = calc_macd(closes)
         dpo       = calc_dpo(closes, DPO_PERIOD)
+        aroon     = calc_aroon(highs, lows, AROON_PERIOD)
 
         signal = "NONE"
-        if (dpo.get("positive") and stoch_rsi.get("oversold") and macd.get("bullish_turn")):
+        if (dpo.get("positive") and stoch_rsi.get("oversold") and macd.get("bullish_turn")
+                and aroon.get("buy_confirmed")):
             signal = "BUY"
-        elif (dpo.get("negative") and stoch_rsi.get("overbought") and macd.get("bearish_turn")):
+        elif (dpo.get("negative") and stoch_rsi.get("overbought") and macd.get("bearish_turn")
+                and aroon.get("sell_confirmed")):
             signal = "SELL"
 
         return {
@@ -328,6 +373,7 @@ async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
             "stoch_rsi":    stoch_rsi,
             "macd":         macd,
             "dpo":          dpo,
+            "aroon":        aroon,
             "signal":       signal,
             "candle_epoch": candle_epoch,
             "last_updated": datetime.utcnow().isoformat(),
@@ -536,14 +582,16 @@ async def _place_multiplier_trade(symbol: str, contract_type: str) -> Dict:
 
 
 async def _trigger_trade_if_confirmed(sym: Dict) -> None:
-    """Strategy: DPO(250) + Stochastic RSI(150,120,55,9) + MACD(21,55,36)
+    """Strategy: DPO(250) + Stochastic RSI(150,120,55,9) + MACD(36,80,36) + Aroon(350)
 
       BUY  (MULTUP):   DPO > 0   AND StochRSI %K,%D <= 20  AND MACD crossed
                         from a bearish bar (prev candle) to a bullish bar
                         (current candle) — i.e. MACD line crossed above signal
+                        AND Aroon confirms: Aroon Up > 70 AND Aroon Down < 20
       SELL (MULTDOWN): DPO < 0   AND StochRSI %K,%D >= 80  AND MACD crossed
                         from a bullish bar (prev candle) to a bearish bar
                         (current candle) — i.e. MACD line crossed below signal
+                        AND Aroon confirms: Aroon Down > 70 AND Aroon Up < 20
     """
     global _trade_log, _traded_candle_epoch
 
@@ -706,7 +754,7 @@ if _FRONTEND.exists():
 @app.on_event("startup")
 async def start_background_scanner():
     async def _loop():
-        print(f"[SCANNER] Started — Strategy: DPO({DPO_PERIOD}) + StochRSI({RSI_LENGTH},{STOCH_LENGTH},{STOCH_SMOOTH_K},{STOCH_SMOOTH_D}) + MACD({MACD_FAST},{MACD_SLOW},{MACD_SIGNAL}) | Auto-trading: {AUTO_TRADING_ENABLED}")
+        print(f"[SCANNER] Started — Strategy: DPO({DPO_PERIOD}) + StochRSI({RSI_LENGTH},{STOCH_LENGTH},{STOCH_SMOOTH_K},{STOCH_SMOOTH_D}) + MACD({MACD_FAST},{MACD_SLOW},{MACD_SIGNAL}) + Aroon({AROON_PERIOD}) | Auto-trading: {AUTO_TRADING_ENABLED}")
         while True:
             tick_start = time.time()
             try:

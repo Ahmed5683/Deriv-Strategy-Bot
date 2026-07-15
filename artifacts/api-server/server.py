@@ -61,7 +61,7 @@ MACD_SIGNAL = 36
 DPO_PERIOD = 250
 
 # Aroon: extra confirmation layer on top of DPO + StochRSI + MACD
-AROON_PERIOD    = 350
+AROON_PERIOD    = 250
 AROON_STRONG    = 70
 AROON_WEAK      = 20
 

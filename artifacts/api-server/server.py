@@ -53,8 +53,8 @@ STOCH_RSI_OVERSOLD   = 20
 STOCH_RSI_OVERBOUGHT = 80
 
 # MACD: fast 21, slow 55, signal 36
-MACD_FAST   = 21
-MACD_SLOW   = 55
+MACD_FAST   = 36
+MACD_SLOW   = 80
 MACD_SIGNAL = 36
 
 # Detrended Price Oscillator

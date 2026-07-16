@@ -328,11 +328,27 @@ def calc_aroon(highs: List[float], lows: List[float], period: int = AROON_PERIOD
     aroon_up   = ((period - bars_since_high) / period) * 100
     aroon_down = ((period - bars_since_low) / period) * 100
 
+    # Rolling series for charting — last 100 bars
+    up_values:   List[float] = []
+    down_values: List[float] = []
+    series_start = max(window, len(highs) - 100)
+    for i in range(series_start, len(highs)):
+        w_h = highs[i - period: i + 1]
+        w_l = lows[i  - period: i + 1]
+        if len(w_h) < window:
+            continue
+        ih = w_h.index(max(w_h))
+        il = w_l.index(min(w_l))
+        up_values.append(round(((period - (period - ih)) / period) * 100, 2))
+        down_values.append(round(((period - (period - il)) / period) * 100, 2))
+
     return {
         "up":             round(aroon_up, 2),
         "down":           round(aroon_down, 2),
         "buy_confirmed":  aroon_up >= AROON_STRONG and aroon_down <= AROON_WEAK,
         "sell_confirmed": aroon_down >= AROON_STRONG and aroon_up <= AROON_WEAK,
+        "up_values":      up_values,
+        "down_values":    down_values,
     }
 
 
@@ -423,10 +439,13 @@ async def run_full_analysis() -> Dict:
 async def build_chart_data(symbol: str) -> Dict:
     candles = await fetch_candles_ws(symbol, CHART_CANDLES)
     closes  = [float(c["close"]) for c in candles]
+    highs   = [float(c["high"])  for c in candles]
+    lows    = [float(c["low"])   for c in candles]
 
     stoch_rsi = calc_stoch_rsi(closes)
     macd      = calc_macd(closes)
     dpo       = calc_dpo(closes, DPO_PERIOD)
+    aroon     = calc_aroon(highs, lows, AROON_PERIOD)
 
     candle_data = [
         {"time": c["epoch"], "open": float(c["open"]), "high": float(c["high"]),
@@ -439,6 +458,7 @@ async def build_chart_data(symbol: str) -> Dict:
         "stoch_rsi":    stoch_rsi,
         "macd":         macd,
         "dpo":          dpo,
+        "aroon":        aroon,
         "bar_count":    len(candles),
         "last_updated": datetime.utcnow().isoformat(),
     }

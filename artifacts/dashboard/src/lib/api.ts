@@ -31,6 +31,15 @@ export interface DPO {
   values: number[];
 }
 
+export interface Aroon {
+  up: number | null;
+  down: number | null;
+  buy_confirmed: boolean;
+  sell_confirmed: boolean;
+  up_values: number[];
+  down_values: number[];
+}
+
 export interface AnalyzedSymbol {
   symbol: string;
   name: string;
@@ -64,6 +73,7 @@ export interface ChartData {
   stoch_rsi: StochRSI;
   macd: MACD;
   dpo: DPO;
+  aroon: Aroon;
   bar_count: number;
   last_updated: string;
 }

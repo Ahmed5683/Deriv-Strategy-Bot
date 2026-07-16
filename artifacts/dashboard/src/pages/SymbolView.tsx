@@ -99,13 +99,21 @@ export function SymbolView() {
     return <div className="flex-1 flex items-center justify-center text-muted-foreground">Chart data not available</div>;
   }
 
+  const n = chart.candles.length;
+  const aroonUp   = chart.aroon?.up_values   ?? [];
+  const aroonDown = chart.aroon?.down_values  ?? [];
+  // aroon series is shorter than candles (needs period warm-up) — align to tail
+  const aroonOffset = n - aroonUp.length;
+
   const indicatorData = chart.candles.map((candle, i) => ({
-    time: format(new Date(candle.time * 1000), 'HH:mm'),
-    k: chart.stoch_rsi?.k_values?.[i] ?? null,
-    d: chart.stoch_rsi?.d_values?.[i] ?? null,
-    macd: chart.macd?.macd_values?.[i] ?? null,
-    signal: chart.macd?.signal_values?.[i] ?? null,
-    dpo: chart.dpo?.values?.[i] ?? null
+    time:       format(new Date(candle.time * 1000), 'HH:mm'),
+    k:          chart.stoch_rsi?.k_values?.[i] ?? null,
+    d:          chart.stoch_rsi?.d_values?.[i] ?? null,
+    macd:       chart.macd?.macd_values?.[i]   ?? null,
+    signal:     chart.macd?.signal_values?.[i] ?? null,
+    dpo:        chart.dpo?.values?.[i]         ?? null,
+    aroon_up:   i >= aroonOffset ? (aroonUp[i - aroonOffset]   ?? null) : null,
+    aroon_down: i >= aroonOffset ? (aroonDown[i - aroonOffset] ?? null) : null,
   }));
 
   return (
@@ -199,6 +207,44 @@ export function SymbolView() {
                 <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" opacity={0.5} />
                 <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }} itemStyle={{ fontFamily: 'monospace' }} />
                 <Line type="monotone" dataKey="dpo" stroke="hsl(var(--foreground))" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* AROON */}
+        <div className="bg-card border border-border rounded-lg p-4 flex flex-col h-[250px] lg:h-[200px]">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Aroon (250)</h3>
+            <div className="text-[10px] font-mono flex gap-3">
+              <span className="text-bullish">Up {chart.aroon?.up?.toFixed(2) ?? '—'}</span>
+              <span className="text-bearish">Down {chart.aroon?.down?.toFixed(2) ?? '—'}</span>
+              {chart.aroon?.buy_confirmed && (
+                <span className="text-bullish font-bold">▲ BUY CONFIRMED</span>
+              )}
+              {chart.aroon?.sell_confirmed && (
+                <span className="text-bearish font-bold">▼ SELL CONFIRMED</span>
+              )}
+            </div>
+          </div>
+          <div className="flex-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={indicatorData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="time" hide />
+                <YAxis domain={[0, 100]} hide />
+                <ReferenceLine y={70} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" opacity={0.5} />
+                <ReferenceLine y={20} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" opacity={0.5} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
+                  itemStyle={{ fontFamily: 'monospace' }}
+                  formatter={(v: any, name: string) => [
+                    typeof v === 'number' ? v.toFixed(2) : v,
+                    name === 'aroon_up' ? 'Aroon Up' : 'Aroon Down'
+                  ]}
+                />
+                <Line type="monotone" dataKey="aroon_up"   stroke="hsl(var(--bullish))" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="aroon_down" stroke="hsl(var(--bearish))" strokeWidth={1.5} dot={false} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>

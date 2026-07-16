@@ -331,8 +331,8 @@ def calc_aroon(highs: List[float], lows: List[float], period: int = AROON_PERIOD
     return {
         "up":             round(aroon_up, 2),
         "down":           round(aroon_down, 2),
-        "buy_confirmed":  aroon_up > AROON_STRONG and aroon_down < AROON_WEAK,
-        "sell_confirmed": aroon_down > AROON_STRONG and aroon_up < AROON_WEAK,
+        "buy_confirmed":  aroon_up >= AROON_STRONG and aroon_down <= AROON_WEAK,
+        "sell_confirmed": aroon_down >= AROON_STRONG and aroon_up <= AROON_WEAK,
     }
 
 
